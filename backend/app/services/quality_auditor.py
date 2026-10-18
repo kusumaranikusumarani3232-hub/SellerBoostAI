@@ -234,11 +234,12 @@ def audit_listing(product: ProductInput, listing: ListingOutput) -> QualityRepor
         long_tags = [t for t in etsy_tags if len(t) > 20]
         if long_tags:
             tag_details = [f"'{t}' ({len(t)} chars)" for t in long_tags]
+            exceeding_tags_formatted = ", ".join(f'"{t}"' for t in long_tags)
             items.append(QualityAuditItem(
                 id="etsy_tag_length", category="seo", title="Etsy Tag Length",
                 passed=False, severity="warning",
                 message=f"{len(long_tags)} tag(s) exceed Etsy's 20-character limit: {', '.join(tag_details)}.",
-                suggestion=f"Shorten exceeding tags to 20 characters or fewer: {', '.join(f'\"{t}\"' for t in long_tags)}."
+                suggestion=f"Shorten exceeding tags to 20 characters or fewer: {exceeding_tags_formatted}."
             ))
         else:
             items.append(QualityAuditItem(
