@@ -40,8 +40,12 @@ async def health_check():
 @router.get("/model-status", response_model=ModelStatusResponse)
 async def model_status():
     """Return current AI provider status, model info, and credit usage."""
-    provider = get_provider()
-    health = await provider.health_check()
+    try:
+        provider = get_provider()
+        health = await provider.health_check()
+    except Exception as e:
+        health = {"status": "error", "error": str(e)}
+
     usage = await get_usage_summary()
 
     is_backboard = bool(settings.AI_PROVIDER == "backboard" and settings.BACKBOARD_API_KEY)
@@ -56,6 +60,16 @@ async def model_status():
         prov_name = f"backboard/{settings.BACKBOARD_DEFAULT_PROVIDER}"
         notes = "Hosted inference via Backboard sovereign gateway routing through OpenRouter to open-weight Llama 3.1 8B."
         is_open_weight = True
+    elif settings.AI_PROVIDER == "backboard" and not settings.BACKBOARD_API_KEY:
+        active_model = settings.BACKBOARD_DEFAULT_MODEL
+        display_name = "Meta Llama 3.1 8B Instruct (Missing API Key)"
+        license_info = "Llama 3.1 Community License — open weights, commercial use permitted under 700M MAU"
+        pricing = f"~${settings.INPUT_COST_PER_MILLION}/1M input, ~${settings.OUTPUT_COST_PER_MILLION}/1M output"
+        context_limit = 128000
+        prov_name = f"backboard/{settings.BACKBOARD_DEFAULT_PROVIDER}"
+        notes = "BACKBOARD_API_KEY environment variable is missing on backend. Set BACKBOARD_API_KEY in Render environment variables for live inference."
+        is_open_weight = True
+        health = {"status": "error", "error": "Missing BACKBOARD_API_KEY"}
     elif is_ollama:
         active_model = settings.OLLAMA_DEFAULT_MODEL
         display_name = f"{settings.OLLAMA_DEFAULT_MODEL} (Local Ollama)"
@@ -72,7 +86,7 @@ async def model_status():
         pricing = "$0.00 — no inference"
         context_limit = 0
         prov_name = "mock"
-        notes = "Demo mode active. Set BACKBOARD_API_KEY in .env for live open-weight AI inference."
+        notes = "Demo mode active. Explicitly set AI_PROVIDER=mock for testing."
         is_open_weight = False
 
     raw_status = health.get("status", "error")

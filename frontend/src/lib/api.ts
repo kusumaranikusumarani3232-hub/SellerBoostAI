@@ -5,8 +5,13 @@ import type {
   BulkImportPreviewResponse, ModelStatusResponse, SampleProduct
 } from '../types'
 
+// Read API URL from environment variable, fallback to '/api' for local Vite dev proxy
+const rawBase = (import.meta.env.VITE_API_URL || '').trim()
+const cleanBase = rawBase.replace(/\/+$/, '')
+export const apiBaseURL = cleanBase ? (cleanBase.endsWith('/api') ? cleanBase : `${cleanBase}/api`) : '/api'
+
 const api = axios.create({
-  baseURL: '/api',
+  baseURL: apiBaseURL,
   timeout: 120000,
   headers: { 'Content-Type': 'application/json' },
 })
@@ -58,8 +63,10 @@ export const duplicateProduct = (id: string): Promise<SavedProductRecord> =>
   api.post(`/products/${id}/duplicate`).then(r => r.data)
 
 // ── Bulk Operations ───────────────────────────────────────────────────────
+export const getTemplateUrl = (): string => `${api.defaults.baseURL || '/api'}/bulk/template`
+
 export const downloadCSVTemplate = () => {
-  window.open('/api/bulk/template', '_blank')
+  window.open(getTemplateUrl(), '_blank')
 }
 
 export const previewCSVImport = (file: File): Promise<BulkImportPreviewResponse> => {

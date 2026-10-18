@@ -161,6 +161,129 @@ Builds cleanly with strict TypeScript compilation (`tsc -b`) and asset optimizat
 
 ---
 
+## 🚢 Deployment Guide (Render + Vercel)
+
+SellerBoost AI is architected for a zero-cost, high-performance production setup:
+- **Backend (FastAPI)** runs on **[Render](https://render.com/)** as a Web Service.
+- **Frontend (React/Vite)** runs on **[Vercel](https://vercel.com/)** as a Global CDN Edge Application.
+
+```
+┌─────────────────────────────────┐           ┌───────────────────────────────────┐
+│        Vercel (Frontend)        │           │         Render (Backend)          │
+│   React 19 + Vite SPA (dist)    │ ────────> │      FastAPI REST API on Port     │
+│   VITE_API_URL -> Render Web    │   HTTPS   │   Meta Llama 3.1 8B via Backboard │
+└─────────────────────────────────┘           └───────────────────────────────────┘
+```
+
+---
+
+### Step 1: Deploy Backend to Render
+
+You can deploy the backend using **Option A (Render Blueprint)** or **Option B (Manual Dashboard)**:
+
+#### Option A: 1-Click Render Blueprint (Recommended)
+1. Push your code to your GitHub repository.
+2. Log into [Render Dashboard](https://dashboard.render.com/) and click **New +** → **Blueprint**.
+3. Select your `SellerBoostAI` GitHub repository.
+4. Render will detect [`render.yaml`](file:///c:/Users/kusuma/Desktop/SellerBoost%20AI/render.yaml) automatically.
+5. In the prompt for secret variables:
+   - `BACKBOARD_API_KEY`: Enter your Backboard API key from [app.backboard.io](https://app.backboard.io/dashboard).
+   - `CORS_ORIGINS`: You can enter `*` or leave blank initially, then update it once Vercel assigns your frontend URL.
+6. Click **Apply**. Render will build and launch your service.
+7. Copy your backend service URL (e.g., `https://sellerboost-backend.onrender.com`).
+
+#### Option B: Manual Web Service Setup
+1. In Render Dashboard, click **New +** → **Web Service**.
+2. Connect your GitHub repository.
+3. Configure the following fields:
+   - **Name**: `sellerboost-backend` (or your choice)
+   - **Region**: Choose the closest region to you (e.g., Oregon, Frankfurt)
+   - **Branch**: `main`
+   - **Root Directory**: `backend`
+   - **Runtime**: `Python 3`
+   - **Build Command**: `pip install -r requirements.txt`
+   - **Start Command**: `uvicorn main:app --host 0.0.0.0 --port $PORT`
+   - **Instance Type**: `Free`
+4. Expand **Advanced** → **Add Environment Variable**:
+   | Key | Value | Description |
+   |---|---|---|
+   | `AI_PROVIDER` | `backboard` | Live AI provider |
+   | `BACKBOARD_API_KEY` | `your_backboard_api_key_here` | Secret API key from Backboard.io |
+   | `BACKBOARD_BASE_URL` | `https://app.backboard.io/api` | Backboard API gateway |
+   | `BACKBOARD_DEFAULT_PROVIDER` | `openrouter` | Gateway provider route |
+   | `BACKBOARD_DEFAULT_MODEL` | `meta-llama/llama-3.1-8b-instruct` | Open-weight foundation model |
+   | `BACKBOARD_MULTILINGUAL_MODEL` | `qwen/qwen-2.5-72b-instruct` | Multilingual open-weight model |
+   | `CORS_ORIGINS` | `https://your-app.vercel.app` | Your Vercel frontend URL (comma-separated if multiple) |
+   | `PYTHON_VERSION` | `3.11.9` | Recommended Python runtime |
+   | `DEBUG` | `false` | Production mode |
+5. Set **Health Check Path** to `/health`.
+6. Click **Create Web Service**.
+7. Once deployed, test the health endpoint in your browser: `https://<your-render-app>.onrender.com/health` (should return `{"status":"ok", ...}`).
+
+---
+
+### Step 2: Deploy Frontend to Vercel
+
+1. Log into the [Vercel Dashboard](https://vercel.com/) and click **Add New...** → **Project**.
+2. Select your `SellerBoostAI` GitHub repository.
+3. In the project configuration screen:
+   - **Framework Preset**: `Vite`
+   - **Root Directory**: Click **Edit** and choose `frontend`
+   - **Build Command**: `npm run build` (default)
+   - **Output Directory**: `dist` (default)
+4. Expand **Environment Variables** and add:
+   | Key | Value | Notes |
+   |---|---|---|
+   | `VITE_API_URL` | `https://<your-backend-app>.onrender.com` | **Use your live Render backend URL** (do NOT use localhost) |
+5. Click **Deploy**.
+6. When Vercel completes deployment, you will receive your production URL (e.g., `https://sellerboost-ai.vercel.app`).
+7. Single-page client routing is automatically managed by [`frontend/vercel.json`](file:///c:/Users/kusuma/Desktop/SellerBoost%20AI/frontend/vercel.json).
+
+---
+
+### Step 3: Link Backend CORS to Frontend URL
+
+1. In your **Render Dashboard**, open your `sellerboost-backend` service.
+2. Go to **Environment** tab.
+3. Update `CORS_ORIGINS` with your new Vercel domain:
+   ```
+   CORS_ORIGINS=https://sellerboost-ai.vercel.app
+   ```
+   *(Note: The backend also contains built-in regex matching `^https:\/\/.*\.vercel\.app$` so all Vercel preview and production branches work seamlessly).*
+4. Render will automatically redeploy with the updated CORS configuration.
+
+---
+
+### Step 4: Production Verification Checklist
+
+Verify all core features once deployed:
+1. **Health Check**:
+   - Access `https://<your-backend>.onrender.com/health` → returns `{"status":"ok", "app":"SellerBoost AI", ...}`.
+2. **AI Provider & Model Status**:
+   - Open your deployed Vercel site. Look at the top bar badge: it should display **AI Active** (green checkmark) with Meta Llama 3.1 8B Instruct and current credit tracking.
+3. **Single Listing Generation**:
+   - Select a sample product or enter your own details on **Create Listing** → click **Generate Listing with Llama 3.1 8B**. The listing, titles, presets, and Quality Auditor score will render.
+4. **Conversational Refinement**:
+   - In the listing workspace refinement box, type an instruction (e.g., `"Emphasize sustainable materials and holiday gift appeal"`) → click **Refine Listing**. The updated listing will load.
+5. **Product Library & SQLite Storage**:
+   - Click **Save Product & Listing** → navigate to **Product Library** (`/library`) → confirm the product is stored, searchable, and can be duplicated or deleted.
+6. **Bulk CSV Operations**:
+   - Navigate to **Bulk Import** (`/bulk`) → click **Download Template** (downloads `sellerboost_template.csv` from backend).
+   - Upload [`test_bulk_3_products.csv`](file:///c:/Users/kusuma/Desktop/SellerBoost%20AI/test_bulk_3_products.csv) → preview row validation → click **Generate Listings for Valid Rows** → verify batch generation and CSV export.
+
+---
+
+### ⚠️ Free-Tier Platform Limitations & Production Considerations
+
+| Service | Free-Tier Policy | What to Expect | Recommended Solution |
+|---|---|---|---|
+| **Render Web Service** | Inactive services spin down after **15 minutes** of no traffic. | The first request after idle can take **~50 seconds** to wake up ("cold start"). | Use an uptime monitor (e.g., [UptimeRobot](https://uptimerobot.com/)) pinging `/health` every 10 minutes, or upgrade to Render Starter ($7/mo) for persistent uptime. |
+| **Render Storage** | Free-tier filesystem is **ephemeral**. | Any data stored directly in the container SQLite file (`sellerboost.db`) resets upon container redeploy or restart. | For long-term production, attach a Render Persistent Disk or configure a managed cloud database (e.g., Supabase / Neon PostgreSQL). |
+| **Vercel Frontend** | Free Hobby Tier with global CDN. | Unlimited bandwidth for small apps; fast response times. | Static Vite SPA assets require SPA rewrites (configured via `frontend/vercel.json`). |
+| **Backboard / OpenRouter** | $5 Free Promo Credits. | Llama 3.1 8B costs ~$0.055 per 1M tokens (~0.0001 per listing), giving thousands of listings per $5 credit. | Track consumption live inside the SellerBoost status badge. |
+
+---
+
 ## 🏆 Hacktoberfest & Backboard Challenge Highlights
 
 | Criteria | Implementation in SellerBoost AI |

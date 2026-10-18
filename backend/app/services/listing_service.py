@@ -51,62 +51,120 @@ def _parse_listing_json(raw: str) -> dict:
     raise ValueError(f"Could not parse AI response as JSON. Response starts with: {text[:200]}")
 
 
+def _to_str(val, max_len: Optional[int] = None, default: str = "") -> str:
+    """Safely coerce any value (str, dict, list, int, None) to string with optional truncation."""
+    if val is None:
+        s = default
+    elif isinstance(val, str):
+        s = val
+    elif isinstance(val, dict):
+        str_vals = [v for v in val.values() if isinstance(v, str)]
+        s = str_vals[0] if str_vals else json.dumps(val)
+    elif isinstance(val, list):
+        s = ", ".join(str(x) for x in val if x)
+    else:
+        s = str(val)
+    s = s.strip()
+    return s[:max_len] if max_len is not None else s
+
+
+def _to_list_of_str(val, max_items: Optional[int] = None) -> list[str]:
+    """Safely coerce any value to a list of strings."""
+    if isinstance(val, list):
+        items = []
+        for item in val:
+            if isinstance(item, str):
+                items.append(item.strip())
+            elif isinstance(item, dict):
+                str_vals = [v for v in item.values() if isinstance(v, str)]
+                items.append(str_vals[0] if str_vals else json.dumps(item))
+            elif item is not None:
+                items.append(str(item).strip())
+        res = [it for it in items if it]
+    elif isinstance(val, str):
+        res = [s.strip() for s in val.split("\n") if s.strip()] or [s.strip() for s in val.split(",") if s.strip()]
+    elif isinstance(val, dict):
+        res = [str(v).strip() for v in val.values() if v]
+    else:
+        res = []
+    return res[:max_items] if max_items is not None else res
+
+
 def _build_listing_output(data: dict, provider: str, model: str, tokens: dict, thread_id: Optional[str] = None) -> ListingOutput:
     """Convert parsed JSON dict into validated ListingOutput."""
     # Build title alternatives
-    titles = []
-    for t in data.get("titles", []):
-        title_text = t.get("title", "")
-        titles.append(TitleAlternative(
-            title=title_text,
-            char_count=t.get("char_count", len(title_text)),
-            focus=t.get("focus", "General"),
-        ))
+    raw_titles = data.get("titles", [])
+    titles: list[TitleAlternative] = []
+    if isinstance(raw_titles, list):
+        for t in raw_titles:
+            if isinstance(t, dict):
+                title_text = _to_str(t.get("title", ""))
+                char_c = t.get("char_count")
+                if not isinstance(char_c, (int, float)):
+                    char_c = len(title_text)
+                titles.append(TitleAlternative(
+                    title=title_text,
+                    char_count=int(char_c),
+                    focus=_to_str(t.get("focus", "General")),
+                ))
+            elif isinstance(t, str):
+                titles.append(TitleAlternative(
+                    title=t,
+                    char_count=len(t),
+                    focus="General",
+                ))
     if not titles:
-        titles = [TitleAlternative(title="Untitled Product", char_count=17, focus="Fallback")]
+        first_title = _to_str(data.get("title") or "Untitled Product")
+        titles = [TitleAlternative(title=first_title, char_count=len(first_title), focus="Fallback")]
+
+    primary_title = titles[0].title
+    desc_str = _to_str(data.get("description", ""))
+    short_desc_str = _to_str(data.get("short_description") or desc_str)
 
     # Build platform presets
-    pp = data.get("platform_presets", {})
+    pp = data.get("platform_presets") if isinstance(data.get("platform_presets"), dict) else {}
 
-    etsy_data = pp.get("etsy", {})
+    etsy_data = pp.get("etsy") if isinstance(pp.get("etsy"), dict) else {}
     etsy = EtsyPreset(
-        title=etsy_data.get("title", titles[0].title),
-        tags_13=etsy_data.get("tags_13", data.get("tags", []))[:13],
-        materials=etsy_data.get("materials", []),
-        description=etsy_data.get("description", data.get("description", "")),
+        title=_to_str(etsy_data.get("title") or primary_title),
+        tags_13=_to_list_of_str(etsy_data.get("tags_13") or data.get("tags", []), max_items=13),
+        materials=_to_list_of_str(etsy_data.get("materials", [])),
+        description=_to_str(etsy_data.get("description") or desc_str),
     )
 
-    amz_data = pp.get("amazon", {})
+    amz_data = pp.get("amazon") if isinstance(pp.get("amazon"), dict) else {}
     amazon = AmazonPreset(
-        title=amz_data.get("title", titles[0].title),
-        bullet_points=amz_data.get("bullet_points", data.get("benefits", []))[:5],
-        product_description=amz_data.get("product_description", data.get("description", "")),
-        search_terms=amz_data.get("search_terms", data.get("keywords", []))[:5],
+        title=_to_str(amz_data.get("title") or primary_title),
+        bullet_points=_to_list_of_str(amz_data.get("bullet_points") or data.get("benefits", []), max_items=5),
+        product_description=_to_str(amz_data.get("product_description") or desc_str),
+        search_terms=_to_list_of_str(amz_data.get("search_terms") or data.get("keywords", []), max_items=5),
     )
 
-    shop_data = pp.get("shopify", {})
+    shop_data = pp.get("shopify") if isinstance(pp.get("shopify"), dict) else {}
     shopify = ShopifyPreset(
-        page_title=shop_data.get("page_title", titles[0].title[:70]),
-        meta_description=shop_data.get("meta_description", data.get("short_description", "")[:160]),
-        headline=shop_data.get("headline", titles[0].title),
-        body_html_text=shop_data.get("body_html_text", data.get("description", "")),
-        feature_highlights=shop_data.get("feature_highlights", data.get("benefits", []))[:5],
-        call_to_action=shop_data.get("call_to_action", "Shop Now"),
+        page_title=_to_str(shop_data.get("page_title") or primary_title, max_len=70),
+        meta_description=_to_str(shop_data.get("meta_description") or short_desc_str or desc_str, max_len=160),
+        headline=_to_str(shop_data.get("headline") or primary_title),
+        body_html_text=_to_str(shop_data.get("body_html_text") or desc_str),
+        feature_highlights=_to_list_of_str(shop_data.get("feature_highlights") or data.get("benefits", []), max_items=5),
+        call_to_action=_to_str(shop_data.get("call_to_action") or "Shop Now"),
     )
 
-    ebay_data = pp.get("ebay", {})
+    ebay_data = pp.get("ebay") if isinstance(pp.get("ebay"), dict) else {}
+    raw_item_specifics = ebay_data.get("item_specifics") if isinstance(ebay_data.get("item_specifics"), dict) else {}
+    item_specifics = {str(k): _to_str(v) for k, v in raw_item_specifics.items()}
     ebay = EbayPreset(
-        title=ebay_data.get("title", titles[0].title[:80]),
-        item_specifics=ebay_data.get("item_specifics", {}),
-        formatted_description=ebay_data.get("formatted_description", data.get("description", "")),
+        title=_to_str(ebay_data.get("title") or primary_title, max_len=80),
+        item_specifics=item_specifics,
+        formatted_description=_to_str(ebay_data.get("formatted_description") or desc_str),
     )
 
-    ig_data = pp.get("instagram", {})
+    ig_data = pp.get("instagram") if isinstance(pp.get("instagram"), dict) else {}
     instagram = InstagramPreset(
-        caption=ig_data.get("caption", ""),
-        hook=ig_data.get("hook", ""),
-        hashtags=ig_data.get("hashtags", []),
-        call_to_action=ig_data.get("call_to_action", "Link in bio!"),
+        caption=_to_str(ig_data.get("caption", "")),
+        hook=_to_str(ig_data.get("hook", "")),
+        hashtags=_to_list_of_str(ig_data.get("hashtags", [])),
+        call_to_action=_to_str(ig_data.get("call_to_action") or "Link in bio!"),
     )
 
     platform_presets = PlatformPresets(
@@ -114,23 +172,23 @@ def _build_listing_output(data: dict, provider: str, model: str, tokens: dict, t
     )
 
     # Social content
-    sc = data.get("social_content", {})
+    sc = data.get("social_content") if isinstance(data.get("social_content"), dict) else {}
     social = SocialContent(
-        launch_post=sc.get("launch_post", ""),
-        instagram_caption=sc.get("instagram_caption", ""),
-        tiktok_reel_hook=sc.get("tiktok_reel_hook", ""),
-        hashtags=sc.get("hashtags", []),
-        call_to_action=sc.get("call_to_action", ""),
+        launch_post=_to_str(sc.get("launch_post", "")),
+        instagram_caption=_to_str(sc.get("instagram_caption", "")),
+        tiktok_reel_hook=_to_str(sc.get("tiktok_reel_hook", "")),
+        hashtags=_to_list_of_str(sc.get("hashtags", [])),
+        call_to_action=_to_str(sc.get("call_to_action", "")),
     )
 
     return ListingOutput(
         titles=titles,
-        description=data.get("description", ""),
-        short_description=data.get("short_description", ""),
-        benefits=data.get("benefits", []),
-        keywords=data.get("keywords", []),
-        tags=data.get("tags", []),
-        call_to_action=data.get("call_to_action", ""),
+        description=desc_str,
+        short_description=short_desc_str,
+        benefits=_to_list_of_str(data.get("benefits", [])),
+        keywords=_to_list_of_str(data.get("keywords", [])),
+        tags=_to_list_of_str(data.get("tags", [])),
+        call_to_action=_to_str(data.get("call_to_action", "")),
         platform_presets=platform_presets,
         social_content=social,
         thread_id=thread_id,

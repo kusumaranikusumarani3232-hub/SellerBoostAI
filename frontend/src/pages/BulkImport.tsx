@@ -3,7 +3,7 @@ import {
   Upload, Download, FileText, CheckCircle2, XCircle,
   PlayCircle, Loader2, AlertTriangle, ChevronDown, ChevronUp
 } from 'lucide-react'
-import { previewCSVImport, bulkGenerateListings, getErrorMessage } from '../lib/api'
+import { previewCSVImport, bulkGenerateListings, getErrorMessage, getTemplateUrl } from '../lib/api'
 import type { BulkImportPreviewResponse, BulkGenerateItemResult } from '../types'
 import { PLATFORM_LABELS } from '../lib/utils'
 import toast from 'react-hot-toast'
@@ -117,7 +117,7 @@ export const BulkImport: React.FC = () => {
             <p className="text-sm font-medium text-primary">Need the template?</p>
             <p className="text-xs text-muted mt-0.5">Download our CSV template with headers and an example row</p>
           </div>
-          <a href="/api/bulk/template" download="sellerboost_template.csv" className="btn-secondary">
+          <a href={getTemplateUrl()} download="sellerboost_template.csv" className="btn-secondary">
             <Download size={15} />
             Download Template
           </a>

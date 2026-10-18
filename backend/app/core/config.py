@@ -1,4 +1,5 @@
-from typing import List, Optional
+from typing import List, Optional, Union
+from pydantic import field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 from pathlib import Path
 
@@ -21,6 +22,38 @@ class Settings(BaseSettings):
         "http://localhost:8000",
         "http://127.0.0.1:8000"
     ]
+    # Regex to permit Vercel production and preview domains (*.vercel.app)
+    CORS_ORIGIN_REGEX: Optional[str] = r"^https:\/\/.*\.vercel\.app$"
+
+    @field_validator("CORS_ORIGINS", mode="before")
+    @classmethod
+    def assemble_cors_origins(cls, v: Union[str, List[str]]) -> List[str]:
+        default_origins = [
+            "http://localhost:5173",
+            "http://127.0.0.1:5173",
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:8000",
+            "http://127.0.0.1:8000"
+        ]
+        parsed: List[str] = []
+        if isinstance(v, str):
+            v = v.strip()
+            if v:
+                if v.startswith("[") and v.endswith("]"):
+                    import json
+                    try:
+                        parsed = json.loads(v)
+                    except Exception:
+                        parsed = [origin.strip() for origin in v.split(",") if origin.strip()]
+                else:
+                    parsed = [origin.strip() for origin in v.split(",") if origin.strip()]
+        elif isinstance(v, (list, tuple)):
+            parsed = [str(origin).strip() for origin in v if str(origin).strip()]
+
+        # Combine configured origins with local defaults, preserving unique items
+        combined = list(dict.fromkeys(parsed + default_origins))
+        return combined
     
     # AI Provider Configuration
     # Options: "backboard", "ollama", "mock"

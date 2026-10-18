@@ -414,12 +414,19 @@ class MockProvider(AIProvider):
 
 def get_provider() -> AIProvider:
     """Factory: return the configured AI provider instance."""
-    if settings.AI_PROVIDER == "backboard" and settings.BACKBOARD_API_KEY:
+    if settings.AI_PROVIDER == "backboard":
+        if not settings.BACKBOARD_API_KEY:
+            raise ValueError(
+                "BACKBOARD_API_KEY is not configured in backend environment variables. "
+                "Please configure BACKBOARD_API_KEY in your Render dashboard for live AI inference, "
+                "or explicitly set AI_PROVIDER=mock for demo/test mode."
+            )
         return BackboardProvider()
     elif settings.AI_PROVIDER == "ollama":
         return OllamaProvider()
-    else:
-        # Fallback to mock if no API key or explicitly set to mock
-        if settings.AI_PROVIDER == "backboard" and not settings.BACKBOARD_API_KEY:
-            logger.warning("BACKBOARD_API_KEY not set — falling back to demo mode. Set BACKBOARD_API_KEY in .env for live inference.")
+    elif settings.AI_PROVIDER == "mock":
         return MockProvider()
+    else:
+        raise ValueError(
+            f"Unknown AI_PROVIDER: '{settings.AI_PROVIDER}'. Valid options: 'backboard', 'ollama', 'mock'."
+        )
